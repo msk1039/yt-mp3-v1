@@ -25,11 +25,12 @@ COPY . .
 
 # Create necessary directories with proper permissions
 RUN mkdir -p /app/temp /app/downloads /app/logs && \
-    chmod 755 /app/temp /app/downloads /app/logs
+    chmod 777 /app/temp /app/downloads /app/logs
 
-# Create non-root user for security
-RUN useradd --create-home --shell /bin/bash app && \
-    chown -R app:app /app
+# Create non-root user for security with specific UID
+RUN useradd --create-home --shell /bin/bash --uid 1000 app && \
+    chown -R app:app /app && \
+    chmod -R 755 /app
 
 USER app
 

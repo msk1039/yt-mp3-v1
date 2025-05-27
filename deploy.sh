@@ -68,6 +68,21 @@ fi
 echo -e "${BLUE}📋 Using environment file: $ENV_FILE${NC}"
 cp "$ENV_FILE" ".env"
 
+# Create and fix permissions for mounted directories
+echo -e "${BLUE}📁 Setting up directories and permissions...${NC}"
+mkdir -p backend/temp backend/downloads backend/logs
+
+# Fix permissions for VPS deployment
+if [ "$ENVIRONMENT" = "prod" ] || [ "$ENVIRONMENT" = "production" ]; then
+    echo -e "${BLUE}🔧 Setting production permissions...${NC}"
+    # Set ownership to current user and make directories writable
+    sudo chown -R $(id -u):$(id -g) backend/temp backend/downloads backend/logs 2>/dev/null || true
+    chmod -R 755 backend/temp backend/downloads backend/logs
+    
+    # Make directories writable by the container user (UID 1000)
+    chmod -R 777 backend/temp backend/downloads backend/logs
+fi
+
 # Export platform for docker-compose
 export PLATFORM=$PLATFORM
 

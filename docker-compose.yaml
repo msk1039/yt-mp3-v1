@@ -36,9 +36,9 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - ./backend/temp:/app/temp
-      - ./backend/downloads:/app/downloads
-      - ./backend/logs:/app/logs
+      - ./backend/temp:/app/temp:rw
+      - ./backend/downloads:/app/downloads:rw
+      - ./backend/logs:/app/logs:rw
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
