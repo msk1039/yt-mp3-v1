@@ -75,6 +75,20 @@ def convert_to_mp3(task_id: str, input_file: str) -> Tuple[bool, Optional[str], 
         # Make sure output directory exists
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         
+        # Check if input file is already MP3 and just copy it
+        if input_file.lower().endswith('.mp3'):
+            logger.info(f"Input file is already MP3, copying to output: {output_path}")
+            shutil.copy2(input_file, output_path)
+            
+            RedisTaskManager.update_task(
+                task_id,
+                status=TaskStatus.COMPLETED.value,
+                progress=100,
+                message="File copied successfully (already MP3)"
+            )
+            
+            return True, output_path, None
+        
         # Start time for progress calculation
         start_time = time.time()
         

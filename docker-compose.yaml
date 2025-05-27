@@ -1,8 +1,7 @@
-version: '3.8'
-
 services:
   redis:
     image: redis:7-alpine
+    platform: ${PLATFORM:-linux/arm64}
     restart: unless-stopped
     ports:
       - "6379:6379"
@@ -19,6 +18,8 @@ services:
     build: 
       context: ./backend
       dockerfile: Dockerfile
+      platforms:
+        - ${PLATFORM:-linux/arm64}
     restart: unless-stopped
     ports:
       - "8000:8000"
@@ -49,7 +50,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       platforms:
-        - linux/amd64
+        - ${PLATFORM:-linux/arm64}
     restart: unless-stopped
     ports:
       - "3000:3000"
@@ -67,6 +68,7 @@ services:
 
   nginx:
     image: nginx:alpine
+    platform: ${PLATFORM:-linux/arm64}
     restart: unless-stopped
     ports:
       - "80:80"

@@ -1,4 +1,4 @@
-FROM node:18-slim AS deps
+FROM node:18-slim AS builder
 
 # Install dependencies only when needed
 RUN apt-get update && apt-get install -y \
@@ -9,22 +9,10 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Install dependencies based on the preferred package manager
+# Copy package files and install ALL dependencies (including dev dependencies for build)
 COPY package.json package-lock.json* ./
-RUN npm ci --only=production
+RUN npm ci
 
-# Rebuild the source code only when needed
-FROM node:18-slim AS builder
-WORKDIR /app
-
-# Install build dependencies
-RUN apt-get update && apt-get install -y \
-    python3 \
-    make \
-    g++ \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 # Next.js collects completely anonymous telemetry data about general usage.
@@ -39,6 +27,9 @@ RUN npm run build
 # Production image, copy all the files and run next
 FROM node:18-slim AS runner
 WORKDIR /app
+
+# Install curl for health checks
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV production
 ENV NEXT_TELEMETRY_DISABLED 1

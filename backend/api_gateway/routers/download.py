@@ -3,7 +3,16 @@ import uuid
 import os
 import time
 from typing import Optional
-from dotenv import load_dotenv
+
+try:
+    from dotenv import load_dotenv
+    # Load environment variables from .env file if it exists
+    # This is mainly for development, Docker will provide env vars directly
+    load_dotenv()
+except ImportError:
+    # dotenv not available, which is fine for production Docker containers
+    pass
+
 from shared.models import DownloadRequest, DownloadResponse, TaskStatusResponse
 from shared.redis_client import RedisTaskManager, TaskStatus, check_redis_connection
 from shared.youtube_api import validate_youtube_url
@@ -16,9 +25,6 @@ try:
 except ImportError:
     CELERY_AVAILABLE = False
     download_audio_task = None
-
-# Load environment variables
-load_dotenv()
 
 router = APIRouter()
 

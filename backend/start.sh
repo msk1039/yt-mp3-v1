@@ -14,10 +14,13 @@ done
 echo "Redis is ready!"
 
 # Start Celery worker in the background
-echo "Starting Celery worker..."
-celery -A shared.celery_app worker --loglevel=info --concurrency=2 &
-CELERY_PID=$!
+# echo "Starting Celery worker..."
+# celery -A shared.celery_app worker --loglevel=info --concurrency=2 &
+# CELERY_PID=$!
 
-# Start FastAPI server
-echo "Starting FastAPI server..."
-exec uvicorn api_gateway.main:app --host 0.0.0.0 --port 8000 --workers 1
+# # Start FastAPI server
+# echo "Starting FastAPI server..."
+# exec uvicorn api_gateway.main:app --host 0.0.0.0 --port 8000 --workers 1
+
+python run_server.py
+

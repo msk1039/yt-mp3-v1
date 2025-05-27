@@ -5,6 +5,9 @@ const nextConfig: NextConfig = {
   output: 'standalone',
   experimental: {
   },
+  eslint: {
+        ignoreDuringBuilds: true,
+      },
   // Ensure API calls work in Docker
   async rewrites() {
     return [

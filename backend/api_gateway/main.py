@@ -17,6 +17,49 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Health check endpoint
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for Docker and load balancers"""
+    try:
+        # Check if Redis is accessible
+        redis_status = check_redis_connection()
+        return {
+            "status": "healthy",
+            "redis": "connected" if redis_status else "disconnected",
+            "service": "api_gateway"
+        }
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "error": str(e),
+            "service": "api_gateway"
+        }
+
+# Root endpoint
+@app.get("/")
+async def root():
+    """Root endpoint with API information"""
+    return {
+        "message": "YouTube to MP3 Converter API",
+        "version": "1.0.0",
+        "docs": "/docs",
+        "health": "/health"
+    }
+
+# Debug endpoint to check environment variables
+@app.get("/debug/env")
+async def debug_env():
+    """Debug endpoint to check environment variables (remove in production)"""
+    youtube_key_set = bool(os.getenv('YOUTUBE_API_KEY'))
+    return {
+        "youtube_api_key_configured": youtube_key_set,
+        "youtube_api_key_length": len(os.getenv('YOUTUBE_API_KEY', '')) if youtube_key_set else 0,
+        "redis_url": os.getenv('REDIS_URL', 'not set'),
+        "temp_dir": os.getenv('TEMP_DIR', 'not set'),
+        "storage_dir": os.getenv('STORAGE_DIR', 'not set')
+    }
+
 # Check Redis connection on startup
 @app.on_event("startup")
 async def startup_event():

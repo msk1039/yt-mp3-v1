@@ -6,12 +6,17 @@ import os
 import re
 from typing import Optional, Dict, Any, Tuple
 from urllib.parse import parse_qs, urlparse
-from dotenv import load_dotenv
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-# Load environment variables
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    # Load environment variables from .env file if it exists
+    # This is mainly for development, Docker will provide env vars directly
+    load_dotenv()
+except ImportError:
+    # dotenv not available, which is fine for production Docker containers
+    pass
 
 # Get API key from environment
 YOUTUBE_API_KEY = os.getenv('YOUTUBE_API_KEY')
@@ -22,11 +27,17 @@ def get_youtube_client():
     
     Returns:
         googleapiclient.discovery.Resource: YouTube API client
+        
+    Raises:
+        ValueError: If YouTube API key is not configured
     """
     if not YOUTUBE_API_KEY:
-        raise ValueError("YouTube API key not found. Please add it to your .env file.")
+        raise ValueError("YouTube API key not found. Please set the YOUTUBE_API_KEY environment variable.")
     
-    return build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
+    try:
+        return build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
+    except Exception as e:
+        raise ValueError(f"Failed to create YouTube API client: {str(e)}")
 
 def extract_video_id(url: str) -> Optional[str]:
     """

@@ -5,10 +5,15 @@ This provides a central place for configuration variables.
 
 import os
 from pathlib import Path
-from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    # Load environment variables from .env file if it exists
+    # This is mainly for development, Docker will provide env vars directly
+    load_dotenv()
+except ImportError:
+    # dotenv not available, which is fine for production Docker containers
+    pass
 
 # API and Service Configuration
 API_VERSION = "v1"
