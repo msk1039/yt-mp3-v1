@@ -1,16 +1,12 @@
-# 🎵 YouTube to MP3 Converter
+# YouTube to MP3 Converter
 
 A modern, containerized YouTube to MP3 converter with a beautiful web interface. Built with Next.js frontend, FastAPI backend, and Redis for task management.
 
 ## ✨ Features
 
 - 🎵 Convert YouTube videos to high-quality MP3 files
-- 🌐 Modern, responsive web interface
-- ⚡ Real-time download progress tracking
-- 🔄 Background processing with Celery workers
-- 📊 Task status monitoring
-- 🐳 Fully containerized with Docker
-- 🚀 One-click setup and deployment
+- 🔄 Background processing with Celery workers for concurrent downloads
+- 🐳 Fully containerized with Docker 
 
 ## 🚀 Quick Start
 
@@ -38,7 +34,9 @@ A modern, containerized YouTube to MP3 converter with a beautiful web interface.
 
 # Run the one-click setup script
 3. Run the setup script
-./run.sh
+    ./run.sh
+
+4. Open http://localhost:3000 in your browser
 ```
 
 That's it! The script will:
@@ -57,7 +55,8 @@ If you prefer manual control:
 # Copy environment template
 cp .env.example .env
 
-# Edit environment variables (optional)
+
+# Edit environment (ADD YOUR YOUTUBE API KEY)
 nano .env
 
 # Build and start services
@@ -104,11 +103,14 @@ docker-compose ps
 ### Local Development
 
 ```bash
+# Build and start container
+docker-compose up --build <container-name>
+
 # View logs
 docker-compose logs -f
 
 # Restart a specific service
-docker-compose restart backend
+docker-compose restart <container-name>
 
 # Stop all services
 docker-compose down
@@ -117,23 +119,6 @@ docker-compose down
 docker-compose up --build -d
 ```
 
-## 🚀 Deployment
-
-### VPS Deployment
-
-```bash
-# Copy files to your VPS
-scp -r . user@your-vps:/path/to/app
-
-# SSH into your VPS
-ssh user@your-vps
-
-# Navigate to app directory
-cd /path/to/app
-
-# Run production deployment
-./deploy.sh prod up
-```
 
 ### Environment Variables
 
@@ -201,18 +186,6 @@ docker-compose logs redis
 docker-compose logs -f --tail=50
 ```
 
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test with `./run.sh`
-5. Submit a pull request
-
-## 📝 License
-
-This project is open source and available under the [MIT License](LICENSE).
-
 ## ⚠️ Important Notes
 
 - This tool is for personal use only
@@ -220,15 +193,4 @@ This project is open source and available under the [MIT License](LICENSE).
 - Only download content you have permission to download
 - Some videos may be geo-restricted or require authentication
 
-## 🆘 Support
 
-If you encounter issues:
-
-1. Check the troubleshooting section above
-2. View the logs: `docker-compose logs`
-3. Open an issue with detailed information
-4. Include your OS, Docker version, and error messages
-
----
-
-Made with ❤️ for the open source community
