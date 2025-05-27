@@ -209,21 +209,10 @@ def download_audio(task_id: str, url: str, celery_task=None) -> Tuple[bool, Opti
         # Set up output filename template
         output_template = os.path.join(task_dir, "%(title)s.%(ext)s")
         
-        # Use yt-dlp CLI instead of Python library to avoid "Precondition check failed" errors
+        # Use yt-dlp CLI with anti-bot measures
         cmd = [
             'yt-dlp',
-            '--format', 'bestaudio/best',
-            '--output', output_template,
-            '--restrict-filenames',  # Restrict filenames to ASCII
-            '--no-playlist',  # Only download single video, not playlist
-            '--extract-audio',  # Extract audio only
-            '--audio-format', 'mp3',  # Convert to MP3
-            '--audio-quality', '192',  # Set audio quality
-            '--embed-metadata',  # Embed metadata
-            '--add-metadata',  # Add metadata
-            '--no-check-certificates',  # Skip SSL certificate checks
-            '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            '--referer', 'https://www.youtube.com/',
+             # Ignore errors and continue
             url
         ]
         
@@ -235,17 +224,179 @@ def download_audio(task_id: str, url: str, celery_task=None) -> Tuple[bool, Opti
             message="Starting download with yt-dlp..."
         )
         
-        # Run yt-dlp command
-        process = subprocess.run(
-            cmd,
-            cwd=task_dir,
-            capture_output=True,
-            text=True,
-            timeout=300  # 5 minute timeout
-        )
+        # Try multiple download strategies to bypass YouTube bot detection
+        download_success = False
+        process = None
         
-        if process.returncode != 0:
-            error_msg = f"yt-dlp failed: {process.stderr}"
+        # Strategy 1: Full anti-bot setup with cookies
+        try:
+            process = subprocess.run(
+                cmd,
+                cwd=task_dir,
+                capture_output=True,
+                text=True,
+                timeout=300  # 5 minute timeout
+            )
+            
+            if process.returncode == 0:
+                download_success = True
+        except (subprocess.TimeoutExpired, Exception) as e:
+            print(f"Strategy 1 failed: {e}")
+        
+        # Strategy 2: Simplified approach without cookies if first fails
+        if not download_success:
+            RedisTaskManager.update_task(
+                task_id,
+                status=TaskStatus.DOWNLOADING.value,
+                progress=25,
+                message="Trying alternative download method..."
+            )
+            
+            cmd_fallback = [
+                'yt-dlp',
+                '--format', 'bestaudio/best',
+                '--output', output_template,
+                '--restrict-filenames',
+                '--no-playlist',
+                '--extract-audio',
+                '--audio-format', 'mp3',
+                '--audio-quality', '192',
+                '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                '--extractor-args', 'youtube:player_client=android',
+                '--sleep-interval', '2',
+                '--retries', '5',
+                url
+            ]
+            
+            try:
+                process = subprocess.run(
+                    cmd_fallback,
+                    cwd=task_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=300
+                )
+                
+                if process.returncode == 0:
+                    download_success = True
+            except (subprocess.TimeoutExpired, Exception) as e:
+                print(f"Strategy 2 failed: {e}")
+        
+        # Strategy 3: Try with iOS client if still failing
+        if not download_success:
+            RedisTaskManager.update_task(
+                task_id,
+                status=TaskStatus.DOWNLOADING.value,
+                progress=30,
+                message="Trying iOS client method..."
+            )
+            
+            cmd_ios = [
+                'yt-dlp',
+                '--format', 'bestaudio/best',
+                '--output', output_template,
+                '--restrict-filenames',
+                '--no-playlist',
+                '--extract-audio',
+                '--audio-format', 'mp3',
+                '--audio-quality', '192',
+                '--extractor-args', 'youtube:player_client=ios',
+                '--sleep-interval', '2',
+                '--retries', '2',
+                url
+            ]
+            
+            try:
+                process = subprocess.run(
+                    cmd_ios,
+                    cwd=task_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=300
+                )
+                
+                if process.returncode == 0:
+                    download_success = True
+            except (subprocess.TimeoutExpired, Exception) as e:
+                print(f"Strategy 3 (iOS) failed: {e}")
+        
+        # Strategy 4: Try with web client and different user agent
+        if not download_success:
+            RedisTaskManager.update_task(
+                task_id,
+                status=TaskStatus.DOWNLOADING.value,
+                progress=32,
+                message="Trying web client method..."
+            )
+            
+            cmd_web = [
+                'yt-dlp',
+                '--format', 'bestaudio/best',
+                '--output', output_template,
+                '--restrict-filenames',
+                '--no-playlist',
+                '--extract-audio',
+                '--audio-format', 'mp3',
+                '--audio-quality', '192',
+                '--extractor-args', 'youtube:player_client=web',
+                '--user-agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
+                '--sleep-interval', '3',
+                '--retries', '1',
+                url
+            ]
+            
+            try:
+                process = subprocess.run(
+                    cmd_web,
+                    cwd=task_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=300
+                )
+                
+                if process.returncode == 0:
+                    download_success = True
+            except (subprocess.TimeoutExpired, Exception) as e:
+                print(f"Strategy 4 (web) failed: {e}")
+        
+        # Strategy 5: Last resort - minimal options
+        if not download_success:
+            RedisTaskManager.update_task(
+                task_id,
+                status=TaskStatus.DOWNLOADING.value,
+                progress=35,
+                message="Trying minimal download method..."
+            )
+            
+            cmd_minimal = [
+                'yt-dlp',
+                '--format', 'worst',  # Try worst quality as last resort
+                '--output', output_template,
+                '--no-playlist',
+                '--extract-audio',
+                '--audio-format', 'mp3',
+                url
+            ]
+            
+            try:
+                process = subprocess.run(
+                    cmd_minimal,
+                    cwd=task_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=300
+                )
+                
+                if process.returncode == 0:
+                    download_success = True
+            except (subprocess.TimeoutExpired, Exception) as e:
+                print(f"Strategy 5 (minimal) failed: {e}")
+        
+        # Check if any strategy succeeded
+        if not download_success or not process or process.returncode != 0:
+            error_msg = f"yt-dlp failed with all strategies"
+            if process and process.stderr:
+                error_msg += f": {process.stderr}"
             raise Exception(error_msg)
         
         # Update progress
