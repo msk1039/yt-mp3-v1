@@ -74,13 +74,17 @@ mkdir -p backend/temp backend/downloads backend/logs
 
 # Fix permissions for VPS deployment
 if [ "$ENVIRONMENT" = "prod" ] || [ "$ENVIRONMENT" = "production" ]; then
-    echo -e "${BLUE}🔧 Setting production permissions...${NC}"
-    # Set ownership to current user and make directories writable
-    sudo chown -R $(id -u):$(id -g) backend/temp backend/downloads backend/logs 2>/dev/null || true
-    chmod -R 755 backend/temp backend/downloads backend/logs
-    
+    echo -e "${BLUE}🔧 Setting production permissions for UID 1000 (container user)...${NC}"
+    # Set ownership to UID 1000 (matches container user) and make directories writable
+    sudo chown -R 1000:1000 backend/temp backend/downloads backend/logs 2>/dev/null || {
+        echo -e "${YELLOW}⚠️  Could not set ownership to UID 1000. Trying current user...${NC}"
+        sudo chown -R $(id -u):$(id -g) backend/temp backend/downloads backend/logs 2>/dev/null || true
+    }
     # Make directories writable by the container user (UID 1000)
-    chmod -R 777 backend/temp backend/downloads backend/logs
+    chmod -R 755 backend/temp backend/downloads backend/logs
+else
+    # For development, use current user and make directories accessible
+    chmod -R 755 backend/temp backend/downloads backend/logs
 fi
 
 # Export platform for docker-compose

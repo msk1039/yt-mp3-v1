@@ -20,18 +20,25 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Create non-root user first with specific UID
+RUN useradd --create-home --shell /bin/bash --uid 1000 app
+
+# Create necessary directories as root first
+RUN mkdir -p /app/temp /app/downloads /app/logs
+
+# Change ownership of directories to app user
+RUN chown -R app:app /app
+
 # Copy application code
 COPY . .
 
-# Create necessary directories with proper permissions
-RUN mkdir -p /app/temp /app/downloads /app/logs && \
-    chmod 777 /app/temp /app/downloads /app/logs
+# Ensure app user owns all files
+RUN chown -R app:app /app
 
-# Create non-root user for security with specific UID
-RUN useradd --create-home --shell /bin/bash --uid 1000 app && \
-    chown -R app:app /app && \
-    chmod -R 755 /app
+# Make start script executable
+RUN chmod +x /app/start.sh
 
+# Switch to non-root user AFTER setting up directories and permissions
 USER app
 
 # Expose port
@@ -40,9 +47,5 @@ EXPOSE 8000
 # Health check
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
-
-# Use a startup script instead of running commands directly
-COPY --chown=app:app start.sh /app/start.sh
-RUN chmod +x /app/start.sh
 
 CMD ["/app/start.sh"]
