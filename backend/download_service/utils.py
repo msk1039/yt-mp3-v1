@@ -1,6 +1,5 @@
 """
 Download utilities using yt-dlp CLI to extract audio from YouTube videos.
-Optimized for VPS deployment with anti-bot detection measures.
 """
 
 import os
@@ -11,16 +10,13 @@ import shutil
 import asyncio
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
-
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    # dotenv not available in Docker environment
-    pass
+from dotenv import load_dotenv
 
 # Import Redis task manager
 from shared.redis_client import RedisTaskManager, TaskStatus
+
+# Load environment variables
+load_dotenv()
 
 # Configure temporary directory for downloads
 TEMP_DIR = os.getenv("TEMP_DIR", "/tmp/yt-mp3")
@@ -54,30 +50,52 @@ def is_valid_audio_file(file_path: str) -> bool:
             header = f.read(1024).decode('utf-8', errors='ignore')
         
         # Check for MHTML indicators
-        mhtml_indicators = [
-            'MIME-Version:', 'Content-Type: multipart/related',
-            'Content-Location:', '--boundary', 'text/html'
+        mhtml_markers = [
+            'MIME-Version:',
+            'multipart/related',
+            'From: <nowhere@yt-dlp',
+            'Content-Type: multipart',
+            '--ytdlp',
+            'boundary='
         ]
         
-        for indicator in mhtml_indicators:
-            if indicator in header:
-                print(f"Invalid file detected: MHTML content found - {indicator}")
+        for marker in mhtml_markers:
+            if marker.lower() in header.lower():
                 return False
         
-        # Check for HTML content (another sign of failed download)
-        html_indicators = ['<html', '<HTML', '<!DOCTYPE', '<head>', '<body>']
-        for indicator in html_indicators:
-            if indicator in header:
-                print(f"Invalid file detected: HTML content found - {indicator}")
-                return False
+        # Check for common audio file signatures
+        with open(file_path, 'rb') as f:
+            magic_bytes = f.read(16)
         
-        return True
+        # Common audio file magic numbers
+        audio_signatures = [
+            b'ID3',  # MP3 with ID3
+            b'\xff\xfb',  # MP3
+            b'\xff\xf3',  # MP3
+            b'\xff\xf2',  # MP3
+            b'ftyp',  # M4A/MP4
+            b'RIFF',  # WAV
+            b'OggS',  # OGG
+            b'OpusHead',  # OPUS
+        ]
+        
+        for signature in audio_signatures:
+            if magic_bytes.startswith(signature) or signature in magic_bytes:
+                return True
+        
+        # If no clear audio signature, but file extension suggests audio and no MHTML markers
+        audio_extensions = ['.mp3', '.m4a', '.wav', '.ogg', '.opus', '.webm']
+        if any(file_path.lower().endswith(ext) for ext in audio_extensions):
+            return True
+        
+        return False
         
     except Exception as e:
         print(f"Error validating file {file_path}: {e}")
         return False
 
 
+# yt-dlp progress callback for updating Redis task status
 class ProgressHook:
     """Progress hook for yt-dlp to update Redis task status"""
     
@@ -130,36 +148,32 @@ class ProgressHook:
                 )
         
         elif d['status'] == 'finished':
-            # Update Redis when download finishes
+            # Download completed, update Redis
+            elapsed = time.time() - self.start_time
             RedisTaskManager.update_task(
                 self.task_id,
                 status=TaskStatus.DOWNLOADING.value,
                 progress=50,
-                message="Download completed, processing..."
+                message=f"Download completed in {elapsed:.1f} seconds. Preparing for conversion..."
             )
             
             # Update Celery task progress if available
             if self.celery_task:
                 self.celery_task.update_state(
                     state='PROGRESS',
-                    meta={'current': 50, 'total': 100, 'status': 'Download completed, processing...'}
+                    meta={'current': 50, 'total': 100, 'status': 'Download completed'}
                 )
         
         elif d['status'] == 'error':
-            # Handle download errors
+            # Download error, update Redis
             error_msg = d.get('error', 'Unknown download error')
-            print(f"Download error: {error_msg}")
-            
-            # Update Redis with error
             RedisTaskManager.update_task(
                 self.task_id,
                 status=TaskStatus.FAILED.value,
-                progress=0,
-                message=f"Download failed: {error_msg}",
                 error=error_msg
             )
             
-            # Update Celery task with error if available
+            # Update Celery task if available
             if self.celery_task:
                 self.celery_task.update_state(
                     state='FAILURE',
@@ -169,7 +183,7 @@ class ProgressHook:
 
 def download_audio(task_id: str, url: str, celery_task=None) -> Tuple[bool, Optional[str], Optional[str]]:
     """
-    Download audio from a YouTube URL using yt-dlp CLI with VPS-optimized anti-bot strategies.
+    Download audio from a YouTube URL using yt-dlp CLI.
     
     Args:
         task_id: Task ID for progress tracking
@@ -195,179 +209,50 @@ def download_audio(task_id: str, url: str, celery_task=None) -> Tuple[bool, Opti
         # Set up output filename template
         output_template = os.path.join(task_dir, "%(title)s.%(ext)s")
         
-        # Base command for all strategies
-        base_cmd = [
+        # Use yt-dlp CLI instead of Python library to avoid "Precondition check failed" errors
+        cmd = [
             'yt-dlp',
-            '--extract-flat', 'never',
-            '--no-playlist',
-            '--format', 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio',
-            '--audio-format', 'mp3',
-            '--audio-quality', '192K',
+            '--format', 'bestaudio/best',
             '--output', output_template,
-            '--no-warnings',
-            '--no-check-certificates',
+            '--restrict-filenames',  # Restrict filenames to ASCII
+            '--no-playlist',  # Only download single video, not playlist
+            '--extract-audio',  # Extract audio only
+            '--audio-format', 'mp3',  # Convert to MP3
+            '--audio-quality', '192',  # Set audio quality
+            '--embed-metadata',  # Embed metadata
+            '--add-metadata',  # Add metadata
+            '--no-check-certificates',  # Skip SSL certificate checks
+            '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            '--referer', 'https://www.youtube.com/',
+            url
         ]
         
-        # VPS-specific anti-bot strategies (ordered by effectiveness for heavily blocked data center IPs)
-        vps_strategies = [
-            # Strategy 1: iOS client emulation with recent version (most effective)
-            {
-                'name': 'iOS Client Latest',
-                'args': [
-                    '--extractor-args', 'youtube:player_client=ios',
-                    '--user-agent', 'com.google.ios.youtube/19.16.3 (iPhone15,2; U; CPU iPhone OS 17_5 like Mac OS X)',
-                    '--add-header', 'X-YouTube-Client-Name:5',
-                    '--add-header', 'X-YouTube-Client-Version:19.16.3',
-                    '--sleep-interval', '2',
-                    '--max-sleep-interval', '4',
-                ]
-            },
-            
-            # Strategy 2: iOS Music client (often less restricted)  
-            {
-                'name': 'iOS Music Client',
-                'args': [
-                    '--extractor-args', 'youtube:player_client=ios_music',
-                    '--user-agent', 'com.google.ios.youtubemusic/5.21 (iPhone15,2; U; CPU iPhone OS 17_5 like Mac OS X)',
-                    '--add-header', 'X-YouTube-Client-Name:26',
-                    '--add-header', 'X-YouTube-Client-Version:5.21',
-                    '--sleep-interval', '3',
-                ]
-            },
-            
-            # Strategy 3: Android TV embedded client (bypasses many restrictions)
-            {
-                'name': 'Android TV Embedded',
-                'args': [
-                    '--extractor-args', 'youtube:player_client=android_embedded',
-                    '--user-agent', 'com.google.android.apps.youtube.leanback/2.37.03 (Linux; U; Android 10)',
-                    '--add-header', 'X-YouTube-Client-Name:85',
-                    '--add-header', 'X-YouTube-Client-Version:2.37.03',
-                    '--sleep-interval', '2',
-                ]
-            },
-            
-            # Strategy 4: Web embedded player (minimal fingerprinting)
-            {
-                'name': 'Web Embedded',
-                'args': [
-                    '--extractor-args', 'youtube:player_client=web_embedded',
-                    '--user-agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15',
-                    '--add-header', 'X-YouTube-Client-Name:56',
-                    '--add-header', 'X-YouTube-Client-Version:1.0',
-                    '--sleep-interval', '4',
-                ]
-            },
-            
-            # Strategy 5: Android client with older version (sometimes works)
-            {
-                'name': 'Android Legacy',
-                'args': [
-                    '--extractor-args', 'youtube:player_client=android',
-                    '--user-agent', 'com.google.android.youtube/16.20.35 (Linux; U; Android 9) gzip',
-                    '--add-header', 'X-YouTube-Client-Name:3',
-                    '--add-header', 'X-YouTube-Client-Version:16.20.35',
-                    '--sleep-interval', '3',
-                ]
-            },
-            
-            # Strategy 6: Last resort - try without any special client
-            {
-                'name': 'Minimal Fallback',
-                'args': [
-                    '--no-check-certificate',
-                    '--ignore-errors',
-                    '--sleep-interval', '5',
-                    '--retries', '1',
-                    '--format', 'worst[ext=webm]/worst',  # Try worst quality
-                ]
-            }
-        ]
-
         # Update progress
         RedisTaskManager.update_task(
             task_id,
             status=TaskStatus.DOWNLOADING.value,
             progress=20,
-            message="Starting VPS-optimized download with 6 anti-bot strategies..."
+            message="Starting download with yt-dlp..."
         )
-
-        # Try each strategy until one succeeds
-        download_success = False
-        last_error = None
         
-        for strategy_num, strategy in enumerate(vps_strategies, 1):
-            try:
-                # Build command with current strategy
-                cmd = base_cmd + strategy['args'] + [url]
-                
-                # Update progress
-                RedisTaskManager.update_task(
-                    task_id,
-                    status=TaskStatus.DOWNLOADING.value,
-                    progress=15 + (strategy_num * 7),
-                    message=f"Trying {strategy['name']} strategy ({strategy_num}/6)..."
-                )
-                
-                print(f"VPS Strategy {strategy_num} ({strategy['name']}): Starting download...")
-                print(f"Command: {' '.join(cmd[:10])}...")  # Debug: show command
-                
-                process = subprocess.run(
-                    cmd,
-                    cwd=task_dir,
-                    capture_output=True,
-                    text=True,
-                    timeout=300  # 5 minute timeout
-                )
-                
-                if process.returncode == 0:
-                    print(f"VPS Strategy {strategy_num} ({strategy['name']}) succeeded!")
-                    download_success = True
-                    break
-                else:
-                    last_error = process.stderr
-                    print(f"VPS Strategy {strategy_num} ({strategy['name']}) failed with return code {process.returncode}")
-                    print(f"STDERR: {process.stderr[:300]}...")
-                    if process.stdout:
-                        print(f"STDOUT: {process.stdout[:200]}...")
-                    
-                    # Check for specific bot detection errors
-                    if "Sign in to confirm you're not a bot" in process.stderr:
-                        print(f"Bot detection triggered for strategy {strategy_num}")
-                    elif "Video unavailable" in process.stderr:
-                        print(f"Video unavailable error for strategy {strategy_num}")
-                    elif "Private video" in process.stderr:
-                        print(f"Private/restricted video for strategy {strategy_num}")
-                        # For private videos, no point trying other strategies
-                        last_error = "Video is private or restricted"
-                        break
-                    
-            except subprocess.TimeoutExpired:
-                last_error = f"Strategy {strategy_num} timed out after 5 minutes"
-                print(f"VPS Strategy {strategy_num} ({strategy['name']}) timed out")
-                continue
-            except Exception as e:
-                last_error = str(e)
-                print(f"VPS Strategy {strategy_num} ({strategy['name']}) exception: {e}")
-                continue
+        # Run yt-dlp command
+        process = subprocess.run(
+            cmd,
+            cwd=task_dir,
+            capture_output=True,
+            text=True,
+            timeout=300  # 5 minute timeout
+        )
         
-        if not download_success:
-            error_msg = f"All VPS download strategies failed. YouTube may be blocking this video for data center IPs. Last error: {last_error}"
-            print(error_msg)
-            RedisTaskManager.update_task(
-                task_id,
-                status=TaskStatus.FAILED.value,
-                progress=0,
-                message="Download failed: All anti-bot strategies exhausted",
-                error=error_msg
-            )
-            return False, None, error_msg
-
-        # Update progress - download successful
+        if process.returncode != 0:
+            error_msg = f"yt-dlp failed: {process.stderr}"
+            raise Exception(error_msg)
+        
+        # Update progress
         RedisTaskManager.update_task(
             task_id,
             status=TaskStatus.DOWNLOADING.value,
-            progress=60,
+            progress=40,
             message="Download completed, locating file..."
         )
         
@@ -388,77 +273,43 @@ def download_audio(task_id: str, url: str, celery_task=None) -> Tuple[bool, Opti
                 if is_valid_audio_file(largest_file):
                     downloaded_files.append(largest_file)
                 else:
-                    error_msg = f"Downloaded file appears to be invalid (likely MHTML): {largest_file}"
-                    print(error_msg)
-                    RedisTaskManager.update_task(
-                        task_id,
-                        status=TaskStatus.FAILED.value,
-                        progress=0,
-                        message="Download failed: Invalid file format",
-                        error=error_msg
-                    )
-                    return False, None, error_msg
+                    raise Exception(f"Downloaded file appears to be invalid: {largest_file}")
             else:
-                error_msg = "No files were downloaded"
-                print(error_msg)
-                RedisTaskManager.update_task(
-                    task_id,
-                    status=TaskStatus.FAILED.value,
-                    progress=0,
-                    message="Download failed: No output files",
-                    error=error_msg
-                )
-                return False, None, error_msg
+                raise Exception("No files were downloaded")
         
         # Use the first (or only) downloaded file
         downloaded_file = downloaded_files[0]
         
         # Final validation
         if not is_valid_audio_file(downloaded_file):
-            error_msg = f"Downloaded file failed validation: {downloaded_file}"
-            print(error_msg)
-            RedisTaskManager.update_task(
-                task_id,
-                status=TaskStatus.FAILED.value,
-                progress=0,
-                message="Download failed: File validation failed",
-                error=error_msg
-            )
-            return False, None, error_msg
+            raise Exception(f"Downloaded file failed validation: {downloaded_file}")
         
         # Update progress
         RedisTaskManager.update_task(
             task_id,
             status=TaskStatus.DOWNLOADING.value,
-            progress=80,
+            progress=50,
             message="Download completed successfully!"
         )
         
-        print(f"Download successful: {downloaded_file}")
         return True, downloaded_file, None
     
     except subprocess.TimeoutExpired:
         error_message = "Download timeout: Process took longer than 5 minutes"
-        print(error_message)
         RedisTaskManager.update_task(
             task_id,
             status=TaskStatus.FAILED.value,
-            progress=0,
-            message="Download timed out",
             error=error_message
         )
         return False, None, error_message
     
     except Exception as e:
         error_message = f"Download error: {str(e)}"
-        print(error_message)
         
         # Update task status with error
         RedisTaskManager.update_task(
             task_id,
             status=TaskStatus.FAILED.value,
-            progress=0,
-            message="Download failed due to unexpected error",
             error=error_message
         )
         
