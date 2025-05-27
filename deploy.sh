@@ -71,6 +71,9 @@ cp "$ENV_FILE" ".env"
 # Export platform for docker-compose
 export PLATFORM=$PLATFORM
 
+# Export backend URL for docker-compose
+export BACKEND_URL="http://backend:8000"
+
 echo -e "${BLUE}🏗️  Platform: $PLATFORM${NC}"
 
 # Execute the requested command

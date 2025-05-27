@@ -94,14 +94,13 @@ export default function HomePage() {
             // Create polling interval
             const interval = setInterval(async () => {
                 try {
-                    // Fetch task status with CORS credentials
-                    const response = await fetch(`http://localhost:8000/api/status/${taskId}`, {
+                    // Use Next.js API route instead of direct backend call
+                    const response = await fetch(`/api/status/${taskId}`, {
                         method: 'GET',
                         headers: {
                             'Content-Type': 'application/json',
                             'Accept': 'application/json',
                         },
-                        mode: 'cors',
                     });
                     
                     // Check if response is ok
@@ -133,7 +132,7 @@ export default function HomePage() {
                         error: data.error,
                         fileSize: data.fileSize,
                         fileSizeFormatted: data.fileSizeFormatted,
-                        downloadUrl: data.status === 'completed' ? `http://localhost:8000/api/download/${taskId}` : undefined,
+                        downloadUrl: data.status === 'completed' ? `/api/download/${taskId}` : undefined,
                         downloadCount: data.downloadCount || 0,
                         expiresText: data.expiresText
                     };
@@ -257,8 +256,8 @@ export default function HomePage() {
         setIsLoading(true);
         
         try {
-            // Make request to backend API
-            const response = await fetch('http://localhost:8000/api/download', {
+            // Use Next.js API route instead of direct backend call
+            const response = await fetch('/api/download', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
