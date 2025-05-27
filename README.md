@@ -1,6 +1,11 @@
+
+
 # YouTube to MP3 Converter
 
 A modern, containerized YouTube to MP3 converter with a beautiful web interface. Built with Next.js frontend, FastAPI backend, and Redis for task management.
+
+https://github.com/user-attachments/assets/915ce068-c5ba-445f-ad0f-cc60aea5f51e
+
 
 ## ✨ Features
 
